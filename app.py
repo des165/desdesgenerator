@@ -113,7 +113,7 @@ with col3:
     else:
        if not foto_target:
             st.error("Silakan unggah foto wajah/model sumber terlebih dahulu!")
-        else:
+       else:
             st.success("Master Prompt Character Turnaround Sheet Berhasil Dibuat!")
             
             # Menyusun prompt berdasarkan input kustom dari user
