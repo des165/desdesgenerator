@@ -102,9 +102,9 @@ with col3:
     st.image("https://placehold.co/450x800/262730/ffffff?text=Panel+3%0ACTA+(9:16)", use_container_width=True)
             
 # Download button untuk teks video
-st.download_button(label="💾 Save Video Prompt (.txt)", data=master_prompt, file_name="prompt_video_affiliate.txt", mime="text/plain")
+        st.download_button(label="📄 Save Video Prompt (.txt)", data=master_prompt, file_name="prompt_video_affiliate.txt", mime="text/plain")
 
-    # --- JALUR 2: CHARACTER REFERENCE SHEET (FITUR BARU) ---
+    # --- JALUR 2: CHARACTER REFERENCE SHEET ---
     else:
         if not foto_target:
             st.error("Silakan unggah foto wajah/model sumber terlebih dahulu!")
@@ -122,7 +122,7 @@ st.download_button(label="💾 Save Video Prompt (.txt)", data=master_prompt, fi
                 f"Keep the face, hairstyle, outfit, proportions, and color palette exactly consistent across all views. "
                 f"Full body, T-pose or neutral standing pose, clean lighting, no shadows overlapping between views, "
                 f"character sheet / turnaround style, high detail.{ekspresi_text}"
-            )
+            
             
             st.subheader("🤖 Master Prompt Character Reference Sheet (Gemini / Imagen 3)")
             st.info("💡 **Rahasia Sukses:** Salin prompt di bawah ini ke Gemini/Google AI Studio bersamaan dengan foto wajah yang Anda unggah tadi.")
