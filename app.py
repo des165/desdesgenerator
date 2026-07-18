@@ -103,7 +103,6 @@ with col3:
             
 # Download button untuk teks video
         st.download_button(label="📄 Save Video Prompt (.txt)", data=master_prompt, file_name="prompt_video_affiliate.txt", mime="text/plain")
-
     # --- JALUR 2: CHARACTER REFERENCE SHEET ---
     else:
         if not foto_target:
