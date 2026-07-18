@@ -119,7 +119,7 @@ with col3:
             # Menyusun prompt berdasarkan input kustom dari user
             ekspresi_text = " Include a small expression sheet with 3 facial expressions." if tambah_ekspresi else ""
             
-            char_prompt = (
+            char_prompt = ().
                 f"Visual Style: {gaya_visual}. "
                 f"Show the same character in multiple consistent views: {jumlah_views}, "
                 f"all in one single image arranged in a grid layout on a plain neutral background. "
