@@ -78,6 +78,28 @@ if submit_button:
             )
             st.subheader("🤖 Master Prompt Video AI (Veo / Omni)")
             st.code(master_prompt, language="text")
+            # --- TAMBAHAN UNTUK VISUAL GRID STORYBOARD (9:16) ---
+st.markdown("---")
+st.markdown("### 🖼️ Visual Storyboard Layout (9:16)")
+
+# Membuat 3 kolom berdampingan untuk panel storyboard
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown("#### 🎬 Panel 1: Hook")
+    st.warning("Visualisasikan **masalah utama** secara instan di sini.")
+    # Kotak abu-abu placeholder rasio 9:16
+    st.image("https://placehold.co/450x800/262730/ffffff?text=Panel+1%0AHook+(9:16)", use_container_width=True)
+
+with col2:
+    st.markdown("#### 🖐️ Panel 2: Demo")
+    st.info("Tunjukkan area **tangan & produk** sedang beraksi.")
+    st.image("https://placehold.co/450x800/262730/ffffff?text=Panel+2%0ADemo+(9:16)", use_container_width=True)
+
+with col3:
+    st.markdown("#### 🛍️ Panel 3: CTA")
+    st.success("Tutup dengan shot **estetik produk** + link keranjang.")
+    st.image("https://placehold.co/450x800/262730/ffffff?text=Panel+3%0ACTA+(9:16)", use_container_width=True)
             
             # Download button untuk teks video
             st.download_button(label="💾 Save Video Prompt (.txt)", data=master_prompt, file_name="prompt_video_affiliate.txt", mime="text/plain")
