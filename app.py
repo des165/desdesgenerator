@@ -10,11 +10,8 @@ st.set_page_config(page_title="desdes media - AI Affiliate Studio", page_icon="�
 KATA_HIPNOTIS = ["Bayangkan", "Rahasia", "Terbukti", "Instan", "Karena", "Dijamin", "Sekarang"]
 
 # ==============================================================================
-# SETUP CLIENT GEMINI
+# SETUP CLIENT GEMINI (khusus untuk fitur TEKS, masih gratis)
 # ==============================================================================
-# API key GRATIS (tanpa kartu kredit) dari https://aistudio.google.com/apikey
-# Isi di .streamlit/secrets.toml:
-#   GEMINI_API_KEY = "AIzaSy........................"
 def get_client():
     try:
         from google import genai
@@ -30,25 +27,8 @@ def get_client():
     return genai.Client(api_key=api_key), None
 
 
-def generate_image(prompt, images=None):
-    """Panggil Gemini (Nano Banana) buat generate/edit gambar. images = list PIL.Image."""
-    client, err = get_client()
-    if client is None:
-        return None, err
-    contents = list(images) if images else []
-    contents.append(prompt)
-    try:
-        response = client.models.generate_content(model="gemini-2.5-flash-image", contents=contents)
-        for part in response.candidates[0].content.parts:
-            if getattr(part, "inline_data", None) is not None:
-                return Image.open(io.BytesIO(part.inline_data.data)), None
-        return None, "AI tidak mengembalikan gambar. Coba klik lagi."
-    except Exception as e:
-        return None, f"Gagal generate gambar: {e}"
-
-
 def generate_text(prompt, images=None):
-    """Panggil Gemini buat generate teks (boleh dikasih gambar sebagai referensi/OCR)."""
+    """Panggil Gemini buat generate teks (masih gratis, no billing)."""
     client, err = get_client()
     if client is None:
         return None, err
@@ -75,6 +55,34 @@ def simpan_ke_galeri(image, label):
     st.success(f"Tersimpan ke galeri sebagai '{label}'!")
 
 
+def prompt_dan_upload(prompt, key_prefix, catatan_foto=""):
+    """
+    Alur GRATIS untuk generate gambar:
+    1. Tampilkan prompt siap-copy
+    2. User paste manual ke Gemini App (gemini.google.com) — gratis, tanpa billing
+    3. User upload balik hasil gambarnya di sini
+    """
+    st.markdown("### 📋 Langkah Generate Gambar (Gratis, tanpa billing)")
+    st.write("**1.** Klik tombol di bawah untuk buka Gemini App di tab baru:")
+    st.link_button("🔗 Buka Gemini App", "https://gemini.google.com")
+
+    if catatan_foto:
+        st.info(catatan_foto)
+
+    st.write("**2.** Copy prompt di bawah ini (klik ikon copy di pojok kanan atas kotak), lalu paste ke Gemini App bareng foto yang diminta:")
+    st.code(prompt, language="text")
+
+    st.write("**3.** Setelah Gemini App selesai bikin gambarnya, download hasilnya, lalu upload di sini:")
+    hasil_upload = st.file_uploader(
+        "Upload hasil gambar dari Gemini App:",
+        type=["png", "jpg", "jpeg"],
+        key=f"upload_hasil_{key_prefix}",
+    )
+    if hasil_upload:
+        return Image.open(hasil_upload)
+    return None
+
+
 # ==============================================================================
 # SESSION STATE DEFAULTS
 # ==============================================================================
@@ -96,7 +104,8 @@ client_check, err_check = get_client()
 if client_check is None:
     st.sidebar.warning(f"⚠️ {err_check}")
 else:
-    st.sidebar.success("✅ Terhubung ke Gemini")
+    st.sidebar.success("✅ Terhubung ke Gemini (fitur teks)")
+st.sidebar.caption("💡 Fitur gambar pakai Gemini App manual (gratis, no billing)")
 
 tahap = st.sidebar.radio("Pilih Tahap:", [
     "1️⃣ Character Sheet",
@@ -116,32 +125,28 @@ tahap = st.sidebar.radio("Pilih Tahap:", [
 # ==============================================================================
 if tahap.startswith("1"):
     st.title("1️⃣ Buat Character Reference Sheet")
-    st.write("Upload foto model, AI akan bikin 1 lembar referensi karakter (beberapa pose & ekspresi) supaya identitas model konsisten dipakai di tahap-tahap berikutnya.")
+    st.write("Upload foto model, lalu ikuti langkah manual di bawah untuk bikin 1 lembar referensi karakter (beberapa pose & ekspresi) via Gemini App — gratis.")
 
     foto_model_mentah = st.file_uploader("Upload Foto Model:", type=["png", "jpg", "jpeg"], key="up_model_mentah")
     if foto_model_mentah:
         st.image(foto_model_mentah, width=250, caption="Foto Asli")
 
-    if st.button("🚀 Generate Character Sheet"):
-        if not foto_model_mentah:
-            st.error("Upload foto model dulu ya!")
-        else:
-            img = Image.open(foto_model_mentah)
-            prompt = (
-                "Buatkan character reference sheet dari foto model yang dilampirkan. "
-                "Tampilkan dalam 1 lembar gambar: pose depan, pose samping kiri, pose samping kanan, "
-                "ekspresi netral, dan ekspresi tersenyum — disusun rapi dalam grid. "
-                "PENTING (Identity Lock): wajah, bentuk tubuh, warna kulit, dan ciri fisik harus 100% identik "
-                "dengan foto asli, jangan mengubah wajah orangnya sama sekali. "
-                "Latar belakang putih polos studio, pencahayaan merata, gaya foto referensi profesional."
-            )
-            with st.spinner("AI lagi bikin character sheet-nya..."):
-                hasil, err = generate_image(prompt, [img])
-            if err:
-                st.error(err)
-            else:
-                st.session_state["hasil_charsheet"] = hasil
-                st.success("Character sheet berhasil dibuat!")
+        prompt = (
+            "Buatkan character reference sheet dari foto model yang saya lampirkan. "
+            "Tampilkan dalam 1 lembar gambar: pose depan, pose samping kiri, pose samping kanan, "
+            "ekspresi netral, dan ekspresi tersenyum — disusun rapi dalam grid. "
+            "PENTING (Identity Lock): wajah, bentuk tubuh, warna kulit, dan ciri fisik harus 100% identik "
+            "dengan foto asli, jangan mengubah wajah orangnya sama sekali. "
+            "Latar belakang putih polos studio, pencahayaan merata, gaya foto referensi profesional."
+        )
+
+        hasil = prompt_dan_upload(
+            prompt, "charsheet",
+            catatan_foto="Di Gemini App, lampirkan Foto Model di atas sebelum paste prompt-nya."
+        )
+        if hasil:
+            st.session_state["hasil_charsheet"] = hasil
+            st.success("Character sheet berhasil diupload!")
 
     if st.session_state.get("hasil_charsheet"):
         st.markdown("---")
@@ -182,27 +187,23 @@ elif tahap.startswith("2"):
 
     jenis_edit = st.multiselect("Mau ganti apa?", ["Wajah/Muka", "Baju", "Celana"], key="jenis_edit_i2i")
 
-    if st.button("🚀 Generate Hasil Edit"):
-        if not foto_referensi or not foto_model_target:
-            st.error("Foto Referensi dan Foto Model wajib ada dulu!")
-        elif not jenis_edit:
-            st.error("Pilih dulu mau ganti apa (wajah/baju/celana)")
-        else:
-            img_ref = Image.open(foto_referensi)
-            bagian = ", ".join(jenis_edit)
-            prompt = (
-                f"Edit Foto Model berikut dengan mengambil {bagian} dari Foto Referensi yang dilampirkan. "
-                "Pertahankan identitas Foto Model tetap konsisten (wajah, bentuk tubuh, pose) kecuali bagian "
-                f"yang diminta ({bagian}) yang diambil dari Foto Referensi. "
-                "Hasil harus natural, pencahayaan menyatu, tanpa artefak aneh, resolusi tinggi."
-            )
-            with st.spinner("AI lagi ngedit fotonya..."):
-                hasil, err = generate_image(prompt, [foto_model_target, img_ref])
-            if err:
-                st.error(err)
-            else:
-                st.session_state["hasil_i2i"] = hasil
-                st.success("Edit berhasil!")
+    if foto_referensi and foto_model_target and jenis_edit:
+        bagian = ", ".join(jenis_edit)
+        prompt = (
+            f"Edit Foto Model berikut dengan mengambil {bagian} dari Foto Referensi yang saya lampirkan. "
+            "Pertahankan identitas Foto Model tetap konsisten (wajah, bentuk tubuh, pose) kecuali bagian "
+            f"yang diminta ({bagian}) yang diambil dari Foto Referensi. "
+            "Hasil harus natural, pencahayaan menyatu, tanpa artefak aneh, resolusi tinggi."
+        )
+        hasil = prompt_dan_upload(
+            prompt, "i2i",
+            catatan_foto="Di Gemini App, lampirkan KEDUA foto (Foto Model + Foto Referensi) sebelum paste prompt-nya."
+        )
+        if hasil:
+            st.session_state["hasil_i2i"] = hasil
+            st.success("Hasil edit berhasil diupload!")
+    else:
+        st.warning("Lengkapi Foto Referensi, Foto Model, dan pilihan (wajah/baju/celana) dulu ya.")
 
     if st.session_state.get("hasil_i2i"):
         st.markdown("---")
@@ -250,7 +251,7 @@ elif tahap.startswith("4"):
         st.success("Foto produk sudah tersimpan untuk tahap selanjutnya.")
 
 # ==============================================================================
-# TAHAP 5: DESKRIPSI PRODUK
+# TAHAP 5: DESKRIPSI PRODUK (masih otomatis, gratis)
 # ==============================================================================
 elif tahap.startswith("5"):
     st.title("5️⃣ Deskripsi Produk")
@@ -302,7 +303,7 @@ elif tahap.startswith("5"):
         st.session_state["deskripsi_produk"] = st.session_state["edit_deskripsi"]
 
 # ==============================================================================
-# TAHAP 6: NARASI
+# TAHAP 6: NARASI (masih otomatis, gratis)
 # ==============================================================================
 elif tahap.startswith("6"):
     st.title("6️⃣ Narasi")
@@ -372,12 +373,11 @@ elif tahap.startswith("8"):
         st.image(st.session_state["model_final"], width=150, caption="Model")
         st.image(st.session_state["foto_produk"], width=150, caption="Produk")
 
-        if st.button("🚀 Generate Storyboard"):
-            gaya = ", ".join(st.session_state.get("gaya_konten", [])) or "UGC santai"
-            durasi = st.session_state.get("durasi", "10 detik")
-            prompt = f"""Buatkan 1 lembar storyboard berisi 6 panel gambar (grid 2x3 atau 3x2), untuk video affiliate berdurasi {durasi}.
+        gaya = ", ".join(st.session_state.get("gaya_konten", [])) or "UGC santai"
+        durasi = st.session_state.get("durasi", "10 detik")
+        prompt = f"""Buatkan 1 lembar storyboard berisi 6 panel gambar (grid 2x3 atau 3x2), untuk video affiliate berdurasi {durasi}.
 
-Gunakan Foto Model dan Foto Produk yang dilampirkan sebagai referensi wajib (Identity Lock — wajah model dan bentuk/warna produk harus konsisten identik di semua 6 panel, jangan berubah antar panel).
+Gunakan Foto Model dan Foto Produk yang saya lampirkan sebagai referensi wajib (Identity Lock — wajah model dan bentuk/warna produk harus konsisten identik di semua 6 panel, jangan berubah antar panel).
 
 Deskripsi Produk: {st.session_state['deskripsi_produk']}
 Narasi: {st.session_state['narasi']}
@@ -393,13 +393,13 @@ Ketentuan tiap panel:
 - Beri caption singkat kecil di bawah tiap panel yang menjelaskan angle, zoom, dan gerakan di panel itu.
 - Style visual: cinematic, UGC commercial, warna hangat, terlihat seperti konten organik tapi tetap menjual.
 """
-            with st.spinner("AI lagi bikin storyboard 6 panel... (agak lama)"):
-                hasil, err = generate_image(prompt, [st.session_state["model_final"], st.session_state["foto_produk"]])
-            if err:
-                st.error(err)
-            else:
-                st.session_state["storyboard"] = hasil
-                st.success("Storyboard berhasil dibuat!")
+        hasil = prompt_dan_upload(
+            prompt, "storyboard",
+            catatan_foto="Di Gemini App, lampirkan Foto Model dan Foto Produk (keduanya) sebelum paste prompt-nya."
+        )
+        if hasil:
+            st.session_state["storyboard"] = hasil
+            st.success("Storyboard berhasil diupload!")
 
     if st.session_state["storyboard"] is not None:
         st.markdown("---")
@@ -410,7 +410,7 @@ Ketentuan tiap panel:
         st.download_button("💾 Download Storyboard", data=buf.getvalue(), file_name="storyboard.png", mime="image/png")
 
 # ==============================================================================
-# TAHAP 9: KONSEP PROMPT VIDEO
+# TAHAP 9: KONSEP PROMPT VIDEO (masih otomatis, gratis)
 # ==============================================================================
 elif tahap.startswith("9"):
     st.title("9️⃣ Konsep Prompt Video + Narasi + Voice Over")
