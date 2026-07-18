@@ -102,7 +102,13 @@ with col3:
     st.image("https://placehold.co/450x800/262730/ffffff?text=Panel+3%0ACTA+(9:16)", use_container_width=True)
             
     # Download button untuk teks video
-    st.download_button(label="📄 Save Video Prompt (.txt)", data=master_prompt, file_name="prompt_video_affiliate.txt", mime="text/plain")
+        st.download_button(
+            label="📄 Save Video Prompt (.txt)",
+            data=master_prompt,
+            file_name="prompt_video_affiliate.txt",
+            mime="text/plain"
+        )
+
     # --- JALUR 2: CHARACTER REFERENCE SHEET ---
     else:
         if not foto_target:
@@ -114,7 +120,6 @@ with col3:
             ekspresi_text = " Include a small expression sheet with 3 facial expressions." if tambah_ekspresi else ""
             
             char_prompt = (
-                f"Create a character reference sheet based on the uploaded photo. "
                 f"Visual Style: {gaya_visual}. "
                 f"Show the same character in multiple consistent views: {jumlah_views}, "
                 f"all in one single image arranged in a grid layout on a plain neutral background. "
