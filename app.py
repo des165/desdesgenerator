@@ -111,7 +111,7 @@ with col3:
 
     # --- JALUR 2: CHARACTER REFERENCE SHEET ---
     else:
-        if not foto_target:
+       if not foto_target:
             st.error("Silakan unggah foto wajah/model sumber terlebih dahulu!")
         else:
             st.success("Master Prompt Character Turnaround Sheet Berhasil Dibuat!")
