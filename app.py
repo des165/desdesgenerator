@@ -102,7 +102,7 @@ with col3:
     st.image("https://placehold.co/450x800/262730/ffffff?text=Panel+3%0ACTA+(9:16)", use_container_width=True)
             
     # Download button untuk teks video
-        st.download_button(
+    st.download_button(
             label="📄 Save Video Prompt (.txt)",
             data=master_prompt,
             file_name="prompt_video_affiliate.txt",
