@@ -1,413 +1,475 @@
-import base64
-import json
+import io
 import streamlit as st
-import anthropic
+from PIL import Image
 
 # ==============================================================================
 # KONFIGURASI HALAMAN
 # ==============================================================================
-st.set_page_config(page_title="desdes media", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="desdes media - AI Affiliate Studio", page_icon="🎬", layout="wide")
+
+KATA_HIPNOTIS = ["Bayangkan", "Rahasia", "Terbukti", "Instan", "Karena", "Dijamin", "Sekarang"]
 
 # ==============================================================================
-# SETUP CLIENT ANTHROPIC
+# SETUP CLIENT GEMINI
 # ==============================================================================
-# API key diambil dari .streamlit/secrets.toml (key: ANTHROPIC_API_KEY)
-# atau dari environment variable ANTHROPIC_API_KEY.
-# Cara isi secrets.toml:
-#   ANTHROPIC_API_KEY = "sk-ant-xxxxxxxx"
+# API key GRATIS (tanpa kartu kredit) dari https://aistudio.google.com/apikey
+# Isi di .streamlit/secrets.toml:
+#   GEMINI_API_KEY = "AIzaSy........................"
 def get_client():
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", None) if hasattr(st, "secrets") else None
+    try:
+        from google import genai
+    except ImportError:
+        return None, "Library 'google-genai' belum terinstall. Cek requirements.txt."
+
+    api_key = st.secrets.get("GEMINI_API_KEY", None) if hasattr(st, "secrets") else None
     if not api_key:
         import os
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return None
-    return anthropic.Anthropic(api_key=api_key)
+        return None, "API key belum diatur. Isi GEMINI_API_KEY di secrets.toml dulu ya."
+    return genai.Client(api_key=api_key), None
 
 
-def encode_image(uploaded_file):
-    """Encode file upload Streamlit jadi base64 + media_type buat dikirim ke Claude."""
-    media_type = uploaded_file.type or "image/jpeg"
-    b64 = base64.b64encode(uploaded_file.getvalue()).decode("utf-8")
-    return b64, media_type
-
-
-# ==============================================================================
-# FUNGSI GENERATOR - MENU 1: VIDEO JUALAN
-# ==============================================================================
-def generate_konten_video(nama_produk, masalah, usia_text, gaya_visual, alur_video,
-                           foto_model=None, foto_produk=None):
-    """Panggil Claude buat generate brief produksi video jualan lengkap (JSON)."""
-    client = get_client()
+def generate_image(prompt, images=None):
+    """Panggil Gemini (Nano Banana) buat generate/edit gambar. images = list PIL.Image."""
+    client, err = get_client()
     if client is None:
-        return None, "API key belum diatur. Isi ANTHROPIC_API_KEY di secrets.toml dulu ya."
-
-    system_prompt = (
-        "Kamu adalah asisten pembuat brief produksi video jualan pendek untuk media sosial "
-        "(TikTok/Reels/Shorts) berbahasa Indonesia yang santai dan menarik, setara brief "
-        "videografer profesional. "
-        "Balas HANYA dalam format JSON valid, tanpa teks lain, tanpa markdown code fence. "
-        "Kalau ada foto model/produk yang dilampirkan, deskripsikan ciri asli dari foto itu "
-        "(jangan mengarang wajah/warna/bentuk yang beda dari foto). "
-        "Kalau gaya visual 'Hanya Tangan & Produk (Tanpa Muka)', jangan sebutkan wajah model "
-        "sama sekali, fokus ke tangan dan produk saja. "
-        "Gunakan kata kunci utama (nama produk) secara konsisten di narasi, voice_over, "
-        "caption, dan thumbnail_desc supaya SEO-nya nyambung. "
-        "Semua bagian harus singkat dan padat (maksimal 1-2 kalimat pendek per field)."
-    )
-
-    user_prompt = f"""
-Buatkan brief konten dengan struktur JSON persis seperti ini:
-{{
-  "prompt_video": "perintah singkat untuk AI video generator, 1 kalimat",
-  "narasi": "narasi/naskah video, singkat, pakai kata kunci nama produk",
-  "voice_over": "teks voice over, kata kunci sama dengan narasi, singkat",
-  "caption": "caption media sosial, singkat, ada 1 hashtag utama nama produk",
-  "thumbnail_desc": "deskripsi visual thumbnail, singkat",
-  "hashtag_utama": "#satuHashtagDariNamaProduk",
-  "hashtag_seo": ["#tag1", "#tag2", "#tag3", "#tag4"],
-  "detail_produksi": {{
-    "model": "deskripsi singkat model: ciri fisik, ekspresi, outfit (kosongkan kalau gaya visual tanpa muka)",
-    "produk": "deskripsi singkat produk: bentuk, warna, kemasan",
-    "tempat": "lokasi/setting syuting yang cocok",
-    "gerakan": "gerakan talent & kamera selama adegan",
-    "angle_kamera": "sudut kamera (eye-level/low angle/high angle/dutch angle dll)",
-    "zoom_kamera": "pergerakan zoom (static/slow zoom in/zoom out/push-in dll)",
-    "visual_style": "gaya visual & warna (cinematic, warm tone, dsb)",
-    "ugc_style_komersial": "arahan gaya UGC commercial: santai, otentik, kayak konten organik tapi tetap jualan",
-    "identity_lock": "instruksi supaya wajah model & bentuk produk konsisten di setiap frame/adegan",
-    "negative_prompt": "hal yang harus dihindari AI video (misal: wajah berubah, produk berubah bentuk, teks salah eja, tangan cacat, dll)"
-  }},
-  "variasi_konten": {{
-    "mirroring": "1 kalimat arahan versi video di-mirror/flip biar lolos deteksi algoritma tanpa ganggu keterbacaan",
-    "pegang_hp": "1 kalimat arahan versi POV model pegang HP sambil ngomong ke kamera (gaya UGC review)",
-    "podcast": "1 kalimat arahan versi cuplikan gaya podcast: model ngobrol santai membahas produk seolah di podcast"
-  }}
-}}
-
-Data produk:
-- Nama Produk: {nama_produk}
-- Masalah yang diselesaikan: {masalah}
-- Target Umur Penonton: {usia_text}
-- Gaya Visual: {gaya_visual}
-- Alur & Format Video: {alur_video}
-- Foto Model tersedia: {"Ya" if foto_model else "Tidak"}
-- Foto Produk tersedia: {"Ya" if foto_produk else "Tidak"}
-"""
-
-    content = []
-    if foto_model:
-        b64, media_type = encode_image(foto_model)
-        content.append({"type": "text", "text": "Foto Model:"})
-        content.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}})
-    if foto_produk:
-        b64, media_type = encode_image(foto_produk)
-        content.append({"type": "text", "text": "Foto Produk:"})
-        content.append({"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}})
-    content.append({"type": "text", "text": user_prompt})
-
+        return None, err
+    contents = list(images) if images else []
+    contents.append(prompt)
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1800,
-            system=system_prompt,
-            messages=[{"role": "user", "content": content}],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text")
-        text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        data = json.loads(text)
-        return data, None
-    except json.JSONDecodeError:
-        return None, "Gagal membaca hasil dari AI (format bukan JSON). Coba klik tombolnya lagi."
+        response = client.models.generate_content(model="gemini-2.5-flash-image", contents=contents)
+        for part in response.candidates[0].content.parts:
+            if getattr(part, "inline_data", None) is not None:
+                return Image.open(io.BytesIO(part.inline_data.data)), None
+        return None, "AI tidak mengembalikan gambar. Coba klik lagi."
     except Exception as e:
-        return None, f"Gagal menghubungi AI: {e}"
+        return None, f"Gagal generate gambar: {e}"
+
+
+def generate_text(prompt, images=None):
+    """Panggil Gemini buat generate teks (boleh dikasih gambar sebagai referensi/OCR)."""
+    client, err = get_client()
+    if client is None:
+        return None, err
+    contents = list(images) if images else []
+    contents.append(prompt)
+    try:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=contents)
+        return response.text, None
+    except Exception as e:
+        return None, f"Gagal generate teks: {e}"
+
+
+def show_and_save(image, filename, key_prefix):
+    st.image(image, width=350)
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    st.download_button("💾 Download gambar", data=buf.getvalue(), file_name=filename,
+                        mime="image/png", key=f"dl_{key_prefix}")
+
+
+def simpan_ke_galeri(image, label):
+    st.session_state.setdefault("galeri_model", [])
+    st.session_state["galeri_model"].append({"label": label, "image": image})
+    st.success(f"Tersimpan ke galeri sebagai '{label}'!")
 
 
 # ==============================================================================
-# FUNGSI GENERATOR - MENU 2: EDIT FOTO
+# SESSION STATE DEFAULTS
 # ==============================================================================
-def generate_prompt_gaya(foto_asli, gaya):
-    """Panggil Claude (vision) buat bikin prompt ubah gaya foto berdasarkan foto asli."""
-    client = get_client()
-    if client is None:
-        return None, "API key belum diatur. Isi ANTHROPIC_API_KEY di secrets.toml dulu ya."
-
-    b64, media_type = encode_image(foto_asli)
-    system_prompt = (
-        "Kamu asisten yang membuat instruksi edit foto untuk AI image editor. "
-        "Lihat foto yang diberikan, lalu buat SATU kalimat perintah singkat berbahasa "
-        "Indonesia yang menyebutkan ciri penting orang/objek di foto (pose, ekspresi, "
-        "warna baju/latar) supaya hasil edit tetap mirip orangnya, hanya gayanya yang berubah."
-    )
-    user_prompt = f"Foto ini mau diubah ke gaya: {gaya}. Buatkan perintah editnya."
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                    {"type": "text", "text": user_prompt},
-                ],
-            }],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text").strip()
-        return text, None
-    except Exception as e:
-        return None, f"Gagal menghubungi AI: {e}"
-
-
-def generate_prompt_swap(sumber, target, tujuan):
-    """Panggil Claude (vision) buat bikin prompt tukar wajah/baju berdasarkan 2 foto."""
-    client = get_client()
-    if client is None:
-        return None, "API key belum diatur. Isi ANTHROPIC_API_KEY di secrets.toml dulu ya."
-
-    b64_sumber, media_sumber = encode_image(sumber)
-    b64_target, media_target = encode_image(target)
-
-    system_prompt = (
-        "Kamu asisten yang membuat instruksi untuk AI image editor. "
-        "Lihat kedua foto (Sumber dan Target), lalu buat SATU kalimat perintah singkat "
-        "berbahasa Indonesia yang menyebutkan ciri penting tiap foto (baju/wajah, pose, "
-        "latar) supaya hasil editnya tepat sasaran dan natural."
-    )
-    if tujuan == "Tukar Baju (Virtual Try-On)":
-        user_prompt = "Pasangkan baju dari Foto Sumber ke orang di Foto Target. Buatkan perintah editnya."
-    else:
-        user_prompt = "Tukar wajah dari Foto Sumber ke orang di Foto Target. Buatkan perintah editnya."
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Foto Sumber:"},
-                    {"type": "image", "source": {"type": "base64", "media_type": media_sumber, "data": b64_sumber}},
-                    {"type": "text", "text": "Foto Target:"},
-                    {"type": "image", "source": {"type": "base64", "media_type": media_target, "data": b64_target}},
-                    {"type": "text", "text": user_prompt},
-                ],
-            }],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text").strip()
-        return text, None
-    except Exception as e:
-        return None, f"Gagal menghubungi AI: {e}"
-
+for key, default in [
+    ("galeri_model", []), ("model_final", None), ("foto_produk", None),
+    ("deskripsi_produk", ""), ("narasi", ""), ("storyboard", None),
+    ("video_concept", ""),
+]:
+    st.session_state.setdefault(key, default)
 
 # ==============================================================================
 # SIDEBAR
 # ==============================================================================
 st.sidebar.title("🎬 desdes media")
-st.sidebar.markdown("**Aplikasi AI untuk Pemula**")
+st.sidebar.caption("AI Affiliate Content Studio — pakai Gemini (gratis)")
 st.sidebar.markdown("---")
-pilihan = st.sidebar.radio("Pilih mau buat apa hari ini:", ["🎥 Bikin Video Jualan", "🎭 Edit Foto & Ganti Baju"])
 
-st.sidebar.markdown("---")
-if get_client() is None:
-    st.sidebar.warning("⚠️ API key belum diatur. Lihat CARA_SETUP.md")
+client_check, err_check = get_client()
+if client_check is None:
+    st.sidebar.warning(f"⚠️ {err_check}")
 else:
-    st.sidebar.caption("✅ Terhubung ke AI")
+    st.sidebar.success("✅ Terhubung ke Gemini")
+
+tahap = st.sidebar.radio("Pilih Tahap:", [
+    "1️⃣ Character Sheet",
+    "2️⃣ Image to Image (Ganti Wajah/Baju)",
+    "3️⃣ Pilih Model Tersimpan",
+    "4️⃣ Upload Produk",
+    "5️⃣ Deskripsi Produk",
+    "6️⃣ Narasi",
+    "7️⃣ Pilihan Gaya Konten",
+    "8️⃣ Generate Storyboard",
+    "9️⃣ Konsep Prompt Video",
+    "🔟 Generate Video (link)",
+])
 
 # ==============================================================================
-# MENU 1: BIKIN VIDEO JUALAN
+# TAHAP 1: CHARACTER SHEET
 # ==============================================================================
-if pilihan == "🎥 Bikin Video Jualan":
-    st.title("🎥 Bikin Video Jualan")
-    st.write("Isi data di bawah, nanti AI kami yang buatkan naskah dan arahannya!")
+if tahap.startswith("1"):
+    st.title("1️⃣ Buat Character Reference Sheet")
+    st.write("Upload foto model, AI akan bikin 1 lembar referensi karakter (beberapa pose & ekspresi) supaya identitas model konsisten dipakai di tahap-tahap berikutnya.")
 
-    st.subheader("1. Gaya & Format Video")
-    col_gaya, col_alur = st.columns(2)
-    with col_gaya:
-        gaya_visual = st.radio(
-            "Gaya Tampilan Visual:",
-            ["Hanya Tangan & Produk (Tanpa Muka)", "Tampilkan Wajah Model (Face Lock)"],
-            key="gaya_visual",
-        )
-    with col_alur:
-        alur_video = st.selectbox(
-            "Pilih Alur & Format Gaya Video:",
-            ["POV", "Cinematic Product Showcase", "Testimoni Santai", "Unboxing", "Before-After"],
-            key="alur_video",
-        )
+    foto_model_mentah = st.file_uploader("Upload Foto Model:", type=["png", "jpg", "jpeg"], key="up_model_mentah")
+    if foto_model_mentah:
+        st.image(foto_model_mentah, width=250, caption="Foto Asli")
 
-    st.markdown("---")
-    st.subheader("2. Masukkan Bahan")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        foto_model = None
-        if gaya_visual == "Tampilkan Wajah Model (Face Lock)":
-            foto_model = st.file_uploader(
-                "Upload Foto Model (wajib untuk Face Lock):",
-                type=["png", "jpg", "jpeg"],
-                key="foto_model",
+    if st.button("🚀 Generate Character Sheet"):
+        if not foto_model_mentah:
+            st.error("Upload foto model dulu ya!")
+        else:
+            img = Image.open(foto_model_mentah)
+            prompt = (
+                "Buatkan character reference sheet dari foto model yang dilampirkan. "
+                "Tampilkan dalam 1 lembar gambar: pose depan, pose samping kiri, pose samping kanan, "
+                "ekspresi netral, dan ekspresi tersenyum — disusun rapi dalam grid. "
+                "PENTING (Identity Lock): wajah, bentuk tubuh, warna kulit, dan ciri fisik harus 100% identik "
+                "dengan foto asli, jangan mengubah wajah orangnya sama sekali. "
+                "Latar belakang putih polos studio, pencahayaan merata, gaya foto referensi profesional."
             )
-            if foto_model:
-                st.image(foto_model, width=200, caption="Foto Model Siap")
-        else:
-            st.caption("Gaya visual 'Hanya Tangan & Produk' dipilih — upload foto model tidak diperlukan.")
-
-        foto_produk = st.file_uploader(
-            "Upload Foto Produk:",
-            type=["png", "jpg", "jpeg"],
-            key="foto_produk",
-        )
-        if foto_produk:
-            st.image(foto_produk, width=200, caption="Foto Produk Siap")
-
-    with col2:
-        st.subheader("3. Detail Produk")
-        nama_produk = st.text_input("Nama Produk:", key="nama_produk")
-        masalah = st.text_area("Apa masalah yang mau diselesaikan?", key="masalah")
-        usia = st.slider("Target Umur Penonton:", 18, 60, (24, 40), key="usia")
-
-    st.markdown("---")
-
-    if st.button("🚀 Buat Konten Sekarang"):
-        error_list = []
-        if not nama_produk:
-            error_list.append("Nama Produk belum diisi")
-        if not masalah:
-            error_list.append("Masalah yang diselesaikan belum diisi")
-        if gaya_visual == "Tampilkan Wajah Model (Face Lock)" and not foto_model:
-            error_list.append("Gaya visual Face Lock dipilih, tapi Foto Model belum diupload")
-
-        if error_list:
-            st.error("Ada yang belum lengkap: " + ", ".join(error_list))
-        else:
-            usia_text = f"{usia[0]}-{usia[1]} tahun"
-
-            with st.spinner("AI lagi mikir naskah, narasi, sama hashtag-nya..."):
-                data, err = generate_konten_video(
-                    nama_produk, masalah, usia_text, gaya_visual, alur_video,
-                    foto_model, foto_produk
-                )
-
+            with st.spinner("AI lagi bikin character sheet-nya..."):
+                hasil, err = generate_image(prompt, [img])
             if err:
                 st.error(err)
             else:
-                st.success("Konten berhasil dibuat!")
-                st.write("Tinggal salin masing-masing bagian di bawah ini:")
+                st.session_state["hasil_charsheet"] = hasil
+                st.success("Character sheet berhasil dibuat!")
 
-                st.markdown("**🎬 Prompt Video**")
-                st.code(data.get("prompt_video", ""), language="text")
-
-                st.markdown("**📝 Narasi**")
-                st.code(data.get("narasi", ""), language="text")
-
-                st.markdown("**🎙️ Voice Over**")
-                st.code(data.get("voice_over", ""), language="text")
-
-                st.markdown("**💬 Caption**")
-                st.code(data.get("caption", ""), language="text")
-
-                st.markdown("**🖼️ Deskripsi Thumbnail**")
-                st.code(data.get("thumbnail_desc", ""), language="text")
-
-                hashtag_utama = data.get("hashtag_utama", "")
-                hashtag_seo = data.get("hashtag_seo", [])
-                st.markdown("**#️⃣ Hashtag**")
-                st.code((hashtag_utama + " " + " ".join(hashtag_seo)).strip(), language="text")
-
-                st.markdown("---")
-                st.subheader("🎬 Detail Produksi")
-                dp = data.get("detail_produksi", {})
-                label_dp = {
-                    "model": "👤 Model",
-                    "produk": "📦 Produk",
-                    "tempat": "📍 Tempat",
-                    "gerakan": "🏃 Gerakan",
-                    "angle_kamera": "📐 Angle Kamera",
-                    "zoom_kamera": "🔍 Zoom Kamera",
-                    "visual_style": "🎨 Visual Style",
-                    "ugc_style_komersial": "📱 UGC Style Komersial",
-                    "identity_lock": "🔒 Identity Lock",
-                    "negative_prompt": "🚫 Negative Prompt",
-                }
-                for field, label in label_dp.items():
-                    st.markdown(f"**{label}**")
-                    st.code(dp.get(field, ""), language="text")
-
-                st.markdown("---")
-                st.subheader("🎞️ Variasi Konten Tambahan")
-                vk = data.get("variasi_konten", {})
-                label_vk = {
-                    "mirroring": "🪞 Versi Mirroring",
-                    "pegang_hp": "📱 Versi Pegang HP (POV Review)",
-                    "podcast": "🎙️ Versi Gaya Podcast",
-                }
-                for field, label in label_vk.items():
-                    st.markdown(f"**{label}**")
-                    st.code(vk.get(field, ""), language="text")
-
-                if not foto_produk:
-                    st.warning("Tips: Upload foto produk juga supaya deskripsi produk & identity lock lebih akurat sesuai foto asli.")
+    if st.session_state.get("hasil_charsheet"):
+        st.markdown("---")
+        st.subheader("Hasil Character Sheet")
+        show_and_save(st.session_state["hasil_charsheet"], "character_sheet.png", "charsheet")
+        if st.button("📥 Simpan ke Galeri Model"):
+            simpan_ke_galeri(st.session_state["hasil_charsheet"], "Character Sheet")
 
 # ==============================================================================
-# MENU 2: EDIT FOTO & GANTI BAJU
+# TAHAP 2: IMAGE TO IMAGE
 # ==============================================================================
-elif pilihan == "🎭 Edit Foto & Ganti Baju":
-    st.title("🎭 Edit Foto & Ganti Baju")
-    st.write("Pilih alat yang kamu butuhin di bawah ini:")
+elif tahap.startswith("2"):
+    st.title("2️⃣ Image to Image — Ganti Wajah / Baju / Celana")
+    st.write("Upload foto referensi (sumber yang mau diambil) dan foto model (yang mau diedit).")
 
-    fitur = st.selectbox("Apa yang mau kamu lakukan?", ["Ubah Gaya Foto", "Tukar Wajah atau Baju"])
-
-    if fitur == "Ubah Gaya Foto":
-        foto_asli = st.file_uploader("Upload Foto:", type=["png", "jpg", "jpeg"], key="foto_asli")
-        if foto_asli:
-            st.image(foto_asli, width=300)
-        gaya = st.selectbox("Mau diubah jadi gaya apa?", ["Foto Profesional", "Kartun", "Gaya Mewah"])
-
-        if st.button("Proses Foto"):
-            if not foto_asli:
-                st.error("Upload foto dulu ya sebelum diproses!")
+    col1, col2 = st.columns(2)
+    with col1:
+        foto_referensi = st.file_uploader("Foto Referensi (sumber wajah/baju/celana):", type=["png", "jpg", "jpeg"], key="up_referensi")
+        if foto_referensi:
+            st.image(foto_referensi, width=220)
+    with col2:
+        st.write("Pilih Foto Model yang mau diedit:")
+        sumber_model = st.radio("Sumber foto model:", ["Upload baru", "Dari Galeri Model"], key="sumber_model_i2i")
+        foto_model_target = None
+        if sumber_model == "Upload baru":
+            foto_model_target = st.file_uploader("Upload Foto Model:", type=["png", "jpg", "jpeg"], key="up_model_i2i")
+            if foto_model_target:
+                foto_model_target = Image.open(foto_model_target)
+        else:
+            if st.session_state["galeri_model"]:
+                labels = [g["label"] for g in st.session_state["galeri_model"]]
+                pilih = st.selectbox("Pilih dari galeri:", labels, key="pilih_galeri_i2i")
+                foto_model_target = next(g["image"] for g in st.session_state["galeri_model"] if g["label"] == pilih)
             else:
-                with st.spinner("AI lagi lihat fotonya dan bikin perintahnya..."):
-                    prompt_gaya, err = generate_prompt_gaya(foto_asli, gaya)
+                st.info("Galeri masih kosong. Simpan character sheet dulu di Tahap 1, atau upload baru.")
+        if foto_model_target:
+            st.image(foto_model_target, width=220, caption="Foto Model Target")
 
-                if err:
-                    st.error(err)
-                else:
-                    st.success("Teks perintah sudah siap!")
-                    st.code(prompt_gaya, language="text")
+    jenis_edit = st.multiselect("Mau ganti apa?", ["Wajah/Muka", "Baju", "Celana"], key="jenis_edit_i2i")
 
+    if st.button("🚀 Generate Hasil Edit"):
+        if not foto_referensi or not foto_model_target:
+            st.error("Foto Referensi dan Foto Model wajib ada dulu!")
+        elif not jenis_edit:
+            st.error("Pilih dulu mau ganti apa (wajah/baju/celana)")
+        else:
+            img_ref = Image.open(foto_referensi)
+            bagian = ", ".join(jenis_edit)
+            prompt = (
+                f"Edit Foto Model berikut dengan mengambil {bagian} dari Foto Referensi yang dilampirkan. "
+                "Pertahankan identitas Foto Model tetap konsisten (wajah, bentuk tubuh, pose) kecuali bagian "
+                f"yang diminta ({bagian}) yang diambil dari Foto Referensi. "
+                "Hasil harus natural, pencahayaan menyatu, tanpa artefak aneh, resolusi tinggi."
+            )
+            with st.spinner("AI lagi ngedit fotonya..."):
+                hasil, err = generate_image(prompt, [foto_model_target, img_ref])
+            if err:
+                st.error(err)
+            else:
+                st.session_state["hasil_i2i"] = hasil
+                st.success("Edit berhasil!")
+
+    if st.session_state.get("hasil_i2i"):
+        st.markdown("---")
+        st.subheader("Hasil Edit")
+        show_and_save(st.session_state["hasil_i2i"], "hasil_edit.png", "i2i")
+        if st.button("📥 Simpan ke Galeri Model", key="simpan_i2i"):
+            simpan_ke_galeri(st.session_state["hasil_i2i"], f"Hasil Edit ({', '.join(jenis_edit) if jenis_edit else 'edit'})")
+
+# ==============================================================================
+# TAHAP 3: PILIH MODEL TERSIMPAN
+# ==============================================================================
+elif tahap.startswith("3"):
+    st.title("3️⃣ Pilih Model yang Dipakai")
+    st.write("Pilih foto model final (dari Character Sheet atau hasil Image to Image) yang akan dipakai di storyboard nanti.")
+
+    if not st.session_state["galeri_model"]:
+        st.info("Galeri masih kosong. Balik ke Tahap 1 atau 2 dulu, simpan hasilnya ke galeri.")
     else:
-        c1, c2 = st.columns(2)
-        with c1:
-            sumber = st.file_uploader("Foto Sumber (Ambil baju/wajah dari sini):", type=["png", "jpg", "jpeg"], key="sumber")
-            if sumber:
-                st.image(sumber, width=200)
-        with c2:
-            target = st.file_uploader("Foto Target (Mau dipasang ke orang ini):", type=["png", "jpg", "jpeg"], key="target")
-            if target:
-                st.image(target, width=200)
+        labels = [g["label"] for g in st.session_state["galeri_model"]]
+        cols = st.columns(min(4, len(labels)))
+        for i, g in enumerate(st.session_state["galeri_model"]):
+            with cols[i % len(cols)]:
+                st.image(g["image"], width=150, caption=g["label"])
 
-        tujuan = st.selectbox("Mau pindahin apa?", ["Tukar Baju (Virtual Try-On)", "Tukar Wajah"])
+        pilih = st.selectbox("Pilih model final:", labels, key="pilih_model_final")
+        if st.button("✅ Gunakan Model Ini"):
+            st.session_state["model_final"] = next(g["image"] for g in st.session_state["galeri_model"] if g["label"] == pilih)
+            st.success(f"Model '{pilih}' dipakai untuk tahap selanjutnya!")
 
-        if st.button("Pasang Sekarang"):
-            if not sumber or not target:
-                st.error("Upload Foto Sumber dan Foto Target dulu ya, dua-duanya wajib!")
+    if st.session_state["model_final"] is not None:
+        st.markdown("---")
+        st.write("**Model yang sedang aktif dipakai:**")
+        st.image(st.session_state["model_final"], width=200)
+
+# ==============================================================================
+# TAHAP 4: UPLOAD PRODUK
+# ==============================================================================
+elif tahap.startswith("4"):
+    st.title("4️⃣ Upload Foto Produk")
+    foto_produk = st.file_uploader("Upload Foto Produk:", type=["png", "jpg", "jpeg"], key="up_produk")
+    if foto_produk:
+        img = Image.open(foto_produk)
+        st.session_state["foto_produk"] = img
+        st.image(img, width=250, caption="Foto Produk Tersimpan")
+        st.success("Foto produk sudah tersimpan untuk tahap selanjutnya.")
+
+# ==============================================================================
+# TAHAP 5: DESKRIPSI PRODUK
+# ==============================================================================
+elif tahap.startswith("5"):
+    st.title("5️⃣ Deskripsi Produk")
+    mode_deskripsi = st.radio("Cara isi deskripsi:", ["Ketik manual", "Buatkan oleh AI", "Upload screenshot deskripsi"], key="mode_deskripsi")
+
+    if mode_deskripsi == "Ketik manual":
+        nama_produk = st.text_input("Nama Produk:", key="nama_produk_manual")
+        usp = st.text_area("USP / Keunggulan Produk (opsional):", key="usp_manual")
+        if st.button("Simpan Deskripsi"):
+            st.session_state["deskripsi_produk"] = f"Nama Produk: {nama_produk}\nUSP: {usp}"
+            st.success("Deskripsi tersimpan!")
+
+    elif mode_deskripsi == "Buatkan oleh AI":
+        nama_produk = st.text_input("Nama Produk:", key="nama_produk_ai")
+        petunjuk = st.text_area("Kasih petunjuk singkat (kategori produk, target pasar, dll):", key="petunjuk_ai")
+        if st.button("🚀 Buatkan Deskripsi & USP"):
+            images = [st.session_state["foto_produk"]] if st.session_state["foto_produk"] is not None else None
+            prompt = (
+                f"Buatkan deskripsi produk singkat dan 3-4 poin USP (Unique Selling Point) untuk produk "
+                f"bernama '{nama_produk}'. Petunjuk tambahan: {petunjuk}. "
+                "Kalau ada foto produk dilampirkan, sesuaikan deskripsi dengan yang terlihat di foto. "
+                "Bahasa Indonesia, singkat, menarik untuk konten jualan affiliate."
+            )
+            with st.spinner("AI lagi bikin deskripsi..."):
+                hasil, err = generate_text(prompt, images)
+            if err:
+                st.error(err)
             else:
-                with st.spinner("AI lagi lihat kedua fotonya dan bikin perintahnya..."):
-                    prompt_swap, err = generate_prompt_swap(sumber, target, tujuan)
+                st.session_state["deskripsi_produk"] = hasil
+                st.success("Deskripsi berhasil dibuat!")
 
-                if err:
-                    st.error(err)
-                else:
-                    st.success("Teks perintah untuk AI sudah siap!")
-                    st.code(prompt_swap, language="text")
+    else:  # Upload screenshot
+        ss_deskripsi = st.file_uploader("Upload screenshot deskripsi produk:", type=["png", "jpg", "jpeg"], key="up_ss_deskripsi")
+        if ss_deskripsi and st.button("🚀 Ambil Teks dari Screenshot"):
+            img = Image.open(ss_deskripsi)
+            prompt = "Baca dan tuliskan ulang semua teks deskripsi produk yang ada di gambar ini secara lengkap dan rapi."
+            with st.spinner("AI lagi baca screenshotnya..."):
+                hasil, err = generate_text(prompt, [img])
+            if err:
+                st.error(err)
+            else:
+                st.session_state["deskripsi_produk"] = hasil
+                st.success("Teks berhasil diambil!")
+
+    if st.session_state["deskripsi_produk"]:
+        st.markdown("---")
+        st.subheader("Deskripsi Tersimpan")
+        st.text_area("Bisa diedit manual di sini:", value=st.session_state["deskripsi_produk"], key="edit_deskripsi", height=150)
+        st.session_state["deskripsi_produk"] = st.session_state["edit_deskripsi"]
 
 # ==============================================================================
-# PENGATURAN TAMBAHAN
+# TAHAP 6: NARASI
 # ==============================================================================
-with st.expander("⚙️ Pengaturan Tambahan (Opsional)"):
-    st.write("Kalau kamu baru belajar, lewati saja bagian ini.")
-    st.slider("Tingkat Detail", 1, 10, 5, key="tingkat_detail")
+elif tahap.startswith("6"):
+    st.title("6️⃣ Narasi")
+    mode_narasi = st.radio("Cara isi narasi:", ["Ketik manual", "Buatkan oleh AI"], key="mode_narasi")
+
+    if mode_narasi == "Ketik manual":
+        narasi_manual = st.text_area("Tulis narasi kamu:", key="narasi_manual", height=150)
+        if st.button("Simpan Narasi"):
+            st.session_state["narasi"] = narasi_manual
+            st.success("Narasi tersimpan!")
+    else:
+        if st.button("🚀 Buatkan Narasi oleh AI"):
+            prompt = (
+                f"Buatkan narasi video jualan singkat berbahasa Indonesia berdasarkan deskripsi produk berikut:\n"
+                f"{st.session_state['deskripsi_produk']}\n\n"
+                f"WAJIB selipkan 7 kata pemicu hipnotis berikut secara natural di dalam narasi: "
+                f"{', '.join(KATA_HIPNOTIS)}. "
+                "Narasi harus terasa mengalir natural (bukan template kaku), bikin orang penasaran di 2 detik pertama (hook kuat), "
+                "dan enak dibaca sebagai voice over."
+            )
+            with st.spinner("AI lagi nulis narasi..."):
+                hasil, err = generate_text(prompt)
+            if err:
+                st.error(err)
+            else:
+                st.session_state["narasi"] = hasil
+                st.success("Narasi berhasil dibuat!")
+
+    if st.session_state["narasi"]:
+        st.markdown("---")
+        st.subheader("Narasi Tersimpan")
+        st.text_area("Bisa diedit manual di sini:", value=st.session_state["narasi"], key="edit_narasi", height=150)
+        st.session_state["narasi"] = st.session_state["edit_narasi"]
+
+# ==============================================================================
+# TAHAP 7: PILIHAN GAYA KONTEN
+# ==============================================================================
+elif tahap.startswith("7"):
+    st.title("7️⃣ Pilihan Gaya Konten")
+    gaya_konten = st.multiselect(
+        "Pilih gaya konten (boleh lebih dari satu):",
+        ["POV", "One Take UGC", "Mirroring", "Model Pegang HP", "Podcast", "Testimoni Santai", "Unboxing", "Before-After"],
+        key="gaya_konten_pilih",
+    )
+    durasi = st.selectbox("Durasi video:", ["10 detik", "15 detik", "25 detik"], key="durasi_pilih")
+
+    if st.button("Simpan Pilihan"):
+        st.session_state["gaya_konten"] = gaya_konten
+        st.session_state["durasi"] = durasi
+        st.success("Pilihan gaya konten & durasi tersimpan!")
+
+    if st.session_state.get("gaya_konten"):
+        st.markdown("---")
+        st.write(f"**Gaya konten aktif:** {', '.join(st.session_state['gaya_konten'])}")
+        st.write(f"**Durasi aktif:** {st.session_state.get('durasi', '-')}")
+
+# ==============================================================================
+# TAHAP 8: GENERATE STORYBOARD
+# ==============================================================================
+elif tahap.startswith("8"):
+    st.title("8️⃣ Generate Storyboard (6 Scene dalam 1 Lembar)")
+
+    siap = st.session_state["model_final"] is not None and st.session_state["foto_produk"] is not None
+    if not siap:
+        st.warning("Pastikan Tahap 3 (pilih model) dan Tahap 4 (upload produk) sudah selesai dulu.")
+    else:
+        st.image(st.session_state["model_final"], width=150, caption="Model")
+        st.image(st.session_state["foto_produk"], width=150, caption="Produk")
+
+        if st.button("🚀 Generate Storyboard"):
+            gaya = ", ".join(st.session_state.get("gaya_konten", [])) or "UGC santai"
+            durasi = st.session_state.get("durasi", "10 detik")
+            prompt = f"""Buatkan 1 lembar storyboard berisi 6 panel gambar (grid 2x3 atau 3x2), untuk video affiliate berdurasi {durasi}.
+
+Gunakan Foto Model dan Foto Produk yang dilampirkan sebagai referensi wajib (Identity Lock — wajah model dan bentuk/warna produk harus konsisten identik di semua 6 panel, jangan berubah antar panel).
+
+Deskripsi Produk: {st.session_state['deskripsi_produk']}
+Narasi: {st.session_state['narasi']}
+Gaya Konten: {gaya}
+
+Ketentuan tiap panel:
+- Panel 1 = HOOK (adegan pembuka paling menarik perhatian dalam 1-2 detik pertama)
+- Panel 2-5 = pengembangan cerita: masalah -> penggunaan produk -> hasil/manfaat
+- Panel 6 = closing/CTA (call to action)
+- Setiap panel WAJIB jelas menunjukkan: angle kamera (eye-level/low/high/dutch), pergerakan zoom kamera,
+  gerakan model termasuk gerakan kecil (mata, kedipan, rambut, bulu mata, alis, gerakan mulut/bicara),
+  posisi & interaksi model dengan produk.
+- Beri caption singkat kecil di bawah tiap panel yang menjelaskan angle, zoom, dan gerakan di panel itu.
+- Style visual: cinematic, UGC commercial, warna hangat, terlihat seperti konten organik tapi tetap menjual.
+"""
+            with st.spinner("AI lagi bikin storyboard 6 panel... (agak lama)"):
+                hasil, err = generate_image(prompt, [st.session_state["model_final"], st.session_state["foto_produk"]])
+            if err:
+                st.error(err)
+            else:
+                st.session_state["storyboard"] = hasil
+                st.success("Storyboard berhasil dibuat!")
+
+    if st.session_state["storyboard"] is not None:
+        st.markdown("---")
+        st.subheader("Hasil Storyboard")
+        st.image(st.session_state["storyboard"], use_container_width=True)
+        buf = io.BytesIO()
+        st.session_state["storyboard"].save(buf, format="PNG")
+        st.download_button("💾 Download Storyboard", data=buf.getvalue(), file_name="storyboard.png", mime="image/png")
+
+# ==============================================================================
+# TAHAP 9: KONSEP PROMPT VIDEO
+# ==============================================================================
+elif tahap.startswith("9"):
+    st.title("9️⃣ Konsep Prompt Video + Narasi + Voice Over")
+
+    if st.session_state["storyboard"] is None:
+        st.warning("Generate storyboard dulu di Tahap 8.")
+    else:
+        st.image(st.session_state["storyboard"], width=500)
+
+        if st.button("🚀 Buatkan Konsep Prompt Video"):
+            gaya = ", ".join(st.session_state.get("gaya_konten", [])) or "UGC santai"
+            durasi = st.session_state.get("durasi", "10 detik")
+            prompt = f"""Berdasarkan storyboard 6 panel yang sudah dibuat (lihat gambar terlampir), buatkan brief produksi video lengkap dalam Bahasa Indonesia dengan struktur berikut:
+
+1. PROMPT VIDEO (untuk AI video generator seperti Veo/Omni): jelaskan tiap scene secara berurutan sesuai storyboard —
+   sebutkan angle kamera, zoom kamera, deskripsi model (fisik, ekspresi), deskripsi produk (bentuk, warna),
+   dan SEMUA gerakan termasuk gerakan kecil (kedipan mata, gerak rambut, bulu mata, alis, mulut saat bicara).
+   Sertakan instruksi Identity Lock supaya wajah model & bentuk produk konsisten di semua scene.
+   Durasi total: {durasi}. Gaya: {gaya}.
+2. NARASI LENGKAP: gunakan/kembangkan dari narasi ini: "{st.session_state['narasi']}" — WAJIB mengandung 7 kata
+   pemicu hipnotis berikut secara natural: {', '.join(KATA_HIPNOTIS)}.
+3. VOICE OVER: versi narasi yang dioptimalkan untuk diucapkan (jeda, penekanan kata).
+4. NEGATIVE PROMPT: hal yang harus dihindari AI video (wajah berubah, produk berubah bentuk, tangan cacat, teks salah eja).
+5. CATATAN ENGAGEMENT: analisa singkat kenapa struktur video ini berpotensi engagement tinggi dan cara menghindari
+   video "stuck"/shadowban di sistem (variasi hook, pacing, dan call-to-action).
+"""
+            with st.spinner("AI lagi nyusun konsep video..."):
+                hasil, err = generate_text(prompt, [st.session_state["storyboard"]])
+            if err:
+                st.error(err)
+            else:
+                st.session_state["video_concept"] = hasil
+                st.success("Konsep video berhasil dibuat!")
+
+    if st.session_state["video_concept"]:
+        st.markdown("---")
+        st.subheader("Konsep Prompt Video")
+        st.code(st.session_state["video_concept"], language="text")
+
+# ==============================================================================
+# TAHAP 10: GENERATE VIDEO (LINK)
+# ==============================================================================
+elif tahap.startswith("10") or tahap.startswith("🔟"):
+    st.title("🔟 Generate Video di Google")
+    st.write("Salin storyboard dan konsep prompt video dari tahap sebelumnya, lalu paste di salah satu tools Google berikut:")
+
+    st.markdown("""
+- **Gemini App (Nano Banana / Veo akses konsumer, gratis dengan batas harian):**
+  [gemini.google.com](https://gemini.google.com)
+- **Google Flow (akses Veo, perlu langganan AI Pro/Ultra untuk kuota lebih besar):**
+  [labs.google/flow](https://labs.google/flow)
+""")
+
+    if st.session_state["video_concept"]:
+        st.subheader("Konsep Prompt Video (siap paste)")
+        st.code(st.session_state["video_concept"], language="text")
+    else:
+        st.info("Belum ada konsep video. Balik ke Tahap 9 dulu.")
+
+    if st.session_state["storyboard"] is not None:
+        st.subheader("Storyboard (siap upload sebagai referensi)")
+        st.image(st.session_state["storyboard"], width=400)
